@@ -15,6 +15,11 @@ AI assistant, and both see the exact same data.
 8. Connect Claude Desktop (see below)
 9. Deploy to Prefect Horizon for a public URL (see below)
 
+## Documentation
+
+- [TECHNICAL.md](TECHNICAL.md) — architecture, API, database, and design notes
+- [RUNBOOK.md](RUNBOOK.md) — setup, startup, verification, and troubleshooting guidance
+
 ## What's inside
 
 | Primitive | Name | What it does |

@@ -15,6 +15,8 @@ Setup:
 Then visit http://127.0.0.1:8000 for the website,
 and http://127.0.0.1:8000/mcp is the MCP endpoint (Streamable HTTP).
 """
+from typing import Optional
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -48,6 +50,18 @@ def get_timesheet(employee_name: str, start_date: str = "", end_date: str = "") 
 def get_project_summary(project: str) -> dict:
     """Get total hours logged against a project, broken down by employee."""
     return db.get_project_summary(project)
+
+
+@mcp.tool
+def get_weekly_summary(employee_name: str, week_start: str) -> dict:
+    """Get one employee's total hours grouped by project for a given week."""
+    return db.get_weekly_summary(employee_name, week_start)
+
+
+@mcp.tool
+def get_monthly_dashboard_summary(month: str) -> dict:
+    """Get totals by employee and project for a given month in YYYY-MM format."""
+    return db.get_monthly_dashboard_summary(month)
 
 
 @mcp.tool
@@ -97,14 +111,59 @@ class NewEntry(BaseModel):
     description: str = ""
 
 
+class UpdateEntry(BaseModel):
+    employee_name: Optional[str] = None
+    project: Optional[str] = None
+    entry_date: Optional[str] = None
+    hours: Optional[float] = None
+    description: Optional[str] = None
+
+
+class CsvImportRequest(BaseModel):
+    csv: str
+
+
 @app.get("/api/entries")
-def api_list_entries():
-    return db.list_all_entries()
+def api_list_entries(
+    employee_name: str | None = None,
+    project: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
+    return db.list_all_entries(employee_name, project, start_date, end_date)
 
 
 @app.post("/api/entries")
 def api_log_entry(entry: NewEntry):
     return db.log_time(entry.employee_name, entry.project, entry.entry_date, entry.hours, entry.description)
+
+
+@app.get("/api/entries/export")
+def api_export_entries():
+    return db.export_entries_csv()
+
+
+@app.post("/api/entries/import")
+def api_import_entries(payload: CsvImportRequest):
+    return {"imported": db.import_entries_csv(payload.csv)}
+
+
+@app.put("/api/entries/{entry_id}")
+def api_update_entry(entry_id: int, entry: UpdateEntry):
+    return db.update_entry(
+        entry_id,
+        employee_name=entry.employee_name,
+        project=entry.project,
+        entry_date=entry.entry_date,
+        hours=entry.hours,
+        description=entry.description,
+    )
+
+
+@app.delete("/api/entries/{entry_id}")
+def api_delete_entry(entry_id: int):
+    deleted = db.delete_entry(entry_id)
+    return {"deleted": deleted, "id": entry_id}
 
 
 @app.get("/api/projects")
@@ -114,7 +173,46 @@ def api_list_projects():
 
 @app.get("/api/projects/{project}/summary")
 def api_project_summary(project: str):
-    return db.get_project_summary(project)
+    summary = db.get_project_summary(project)
+    budget = db.get_project_budget(project)
+    remaining_hours = budget["budget_hours"] - summary["total_hours"]
+    if remaining_hours < 0:
+        budget_status = "over budget"
+    elif remaining_hours <= 10:
+        budget_status = "near limit"
+    else:
+        budget_status = "on track"
+
+    summary["budget_hours"] = budget["budget_hours"]
+    summary["remaining_hours"] = remaining_hours
+    summary["budget_status"] = budget_status
+    summary["is_over_budget"] = remaining_hours < 0
+    return summary
+
+
+@app.get("/api/projects/{project}/budget")
+def api_project_budget(project: str):
+    return db.get_project_budget(project)
+
+
+@app.get("/api/projects/alerts")
+def api_project_budget_alerts():
+    return db.get_project_budget_alerts()
+
+
+@app.put("/api/projects/{project}/budget")
+def api_set_project_budget(project: str, budget_hours: float):
+    return db.set_project_budget(project, budget_hours)
+
+
+@app.get("/api/reports/weekly/{employee_name}")
+def api_weekly_report(employee_name: str, week_start: str):
+    return db.get_weekly_summary(employee_name, week_start)
+
+
+@app.get("/api/reports/monthly")
+def api_monthly_dashboard(month: str):
+    return db.get_monthly_dashboard_summary(month)
 
 
 @app.get("/api/timesheet/{employee_name}")
